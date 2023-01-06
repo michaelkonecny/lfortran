@@ -1,4 +1,4 @@
-find_path(RAPIDJSON_HEADER rapidjson/rapidjson.h)
+find_path(RAPIDJSON_HEADER rapidjson/rapidjson.h HINT src/)
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(RapidJSON DEFAULT_MSG RAPIDJSON_HEADER)

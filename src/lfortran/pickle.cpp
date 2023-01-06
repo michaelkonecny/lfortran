@@ -6,6 +6,7 @@
 #include <libasr/asr_utils.h>
 #include <libasr/string_utils.h>
 
+
 using LFortran::AST::ast_t;
 using LFortran::AST::Declaration_t;
 using LFortran::AST::expr_t;
@@ -198,14 +199,29 @@ class ASTJsonVisitor :
 public:
     using LFortran::AST::JsonBaseVisitor<ASTJsonVisitor>::JsonBaseVisitor;
 
-    std::string get_str() {
-        return s;
-    }
+    // std::string get_str() {
+    //     return s;
+    // }
+
+    // void print_rapidjson_doc() {
+    //     rapidjson::StringBuffer buffer;
+    //     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    //     d.Accept(writer);
+
+    //     std::cout << buffer.GetString() << std::endl;
+    // }
 };
 
 std::string pickle_json(LFortran::AST::ast_t &ast, LocationManager &lm) {
     ASTJsonVisitor v(lm);
     v.visit_ast(ast);
+
+    // std::cout << "rapidjson start" << std::endl;
+    // v.print_rapidjson_doc();
+    // std::cout << "rapidjson end" << std::endl;
+
+    // std::string s = "";
+    // return s;
     return v.get_str();
 }
 

@@ -208,7 +208,7 @@ if (WITH_XEUS)
 endif()
 
 # JSON
-set(WITH_JSON no CACHE BOOL "Build with JSON support")
+set(WITH_JSON yes CACHE BOOL "Build with JSON support")
 if (WITH_JSON)
     find_package(RapidJSON REQUIRED)
 endif()
