@@ -1485,6 +1485,9 @@ class JsonVisitorVisitor(ASDLVisitor):
         self.emit("private:")
         self.emit(  "Struct& self() { return static_cast<Struct&>(*this); }", 1)
         self.emit("public:")
+        self.emit(  "rapidjson::Document d;", 1)
+        self.emit(  "rapidjson::Value *current_node = nullptr;", 1)
+
         self.emit(  "std::string s, indtd = \"\";", 1)
         self.emit(  "int indent_level = 0, indent_spaces = 4;", 1)
         # Storing a reference to LocationManager like this isn't ideal.
@@ -1495,8 +1498,18 @@ class JsonVisitorVisitor(ASDLVisitor):
         self.emit(  "LocationManager &lm;", 1)
         self.emit("public:")
         self.emit(  "JsonBaseVisitor(LocationManager &lmref) : lm(lmref) {", 1);
+        self.emit(     "d.SetObject();", 2)
+        self.emit(     "current_node = &d;", 2)
+
         self.emit(     "s.reserve(100000);", 2)
         self.emit(  "}", 1)
+        self.emit(  "std::string get_str() {",1)
+        self.emit(      "rapidjson::StringBuffer buffer;", 2)
+        self.emit(      "rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);", 2)
+        self.emit(      "// rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer); // prettified output", 2)
+        self.emit(      "d.Accept(writer);", 2)
+        self.emit(      "return std::string(buffer.GetString());", 2)
+        self.emit(  "}",1)
         self.emit(  "void inc_indent() {", 1)
         self.emit(      "indent_level++;", 2)
         self.emit(      "indtd = std::string(indent_level*indent_spaces, ' ');",2)
@@ -1506,6 +1519,38 @@ class JsonVisitorVisitor(ASDLVisitor):
         self.emit(      "LFORTRAN_ASSERT(indent_level >= 0);", 2)
         self.emit(      "indtd = std::string(indent_level*indent_spaces, ' ');",2)
         self.emit(  "}",1)
+        self.emit(  "rapidjson::Value get_location(uint32_t first, uint32_t last) {", 1)
+        self.emit(      "rapidjson::Value loc;", 2)
+        self.emit(      "loc.SetObject();", 2)
+        self.emit(      "", 2)
+        self.emit(      "loc.AddMember(\"first\", first, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"last\", last, d.GetAllocator());", 2)
+        self.emit(      "", 2)
+        self.emit(      "std::string first_filename;", 2)
+        self.emit(      "uint32_t first_line = 0, first_col = 0;", 2)
+        self.emit(      "std::string last_filename;", 2)
+        self.emit(      "uint32_t last_line = 0, last_col = 0;", 2)
+        self.emit(      "", 2)
+        self.emit(      "lm.pos_to_linecol(first, first_line, first_col, first_filename);", 2)
+        self.emit(      "lm.pos_to_linecol(last, last_line, last_col, last_filename);", 2)
+        self.emit(      "", 2)
+        self.emit(      "rapidjson::Value first_filename_value;", 2)
+        self.emit(      "first_filename_value.SetString(first_filename.c_str(), d.GetAllocator());", 2)
+        self.emit(      "rapidjson::Value last_filename_value;", 2)
+        self.emit(      "last_filename_value.SetString(last_filename.c_str(), d.GetAllocator());", 2)
+        self.emit(      "", 2)
+        self.emit(      "loc.AddMember(\"first_filename\", first_filename_value, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"first_line\", first_line, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"first_col\", first_col, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"last_filename\", last_filename_value, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"last_line\", last_line, d.GetAllocator());", 2)
+        self.emit(      "loc.AddMember(\"last_col\", last_col, d.GetAllocator());", 2)
+        self.emit(      "", 2)
+        self.emit(      "return loc;", 2)
+        self.emit(  "}", 1)
+
+
+
         self.emit(  "void append_location(std::string &s, uint32_t first, uint32_t last) {", 1)
         self.emit(      's.append("\\"loc\\": {");', 2);
         self.emit(      'inc_indent();', 2)
@@ -1564,42 +1609,72 @@ class JsonVisitorVisitor(ASDLVisitor):
 
     def make_visitor(self, name, fields, cons):
         self.emit("void visit_%s(const %s_t &x) {" % (name, name), 1)
-        self.emit(    's.append("{");', 2)
-        self.emit(    'inc_indent(); s.append("\\n" + indtd);', 2)
-        self.emit(    's.append("\\"node\\": \\"%s\\"");' % name, 2)
-        self.emit(    's.append(",\\n" + indtd);', 2)
-        self.emit(    's.append("\\"fields\\": {");', 2)
+        self.emit(    'rapidjson::Value *prevnode = current_node;', 2)
+        self.emit(    'current_node->SetObject();', 2)
+        self.emit(    'current_node->AddMember("node", rapidjson::Value("%s"), d.GetAllocator());' % name, 2)
+        self.emit(    '', 2)
+        self.emit(    'rapidjson::Value fields;', 2)
+        self.emit(    'fields.SetObject();', 2)
+
         if len(fields) > 0:
-            self.emit('inc_indent(); s.append("\\n" + indtd);', 2)
             for n, field in enumerate(fields):
                 self.visitField(field, cons)
-                if n < len(fields) - 1:
-                    self.emit('s.append(",\\n" + indtd);', 2)
-            self.emit('dec_indent(); s.append("\\n" + indtd);', 2)
-        self.emit(    's.append("}");', 2)
-        self.emit(    's.append(",\\n" + indtd);', 2)
-        if name in products:
-            self.emit(    'append_location(s, x.loc.first, x.loc.last);', 2)
-        else:
-            self.emit(    'append_location(s, x.base.base.loc.first, x.base.base.loc.last);', 2)
+                self.emit(    'fields.AddMember("%s", %s, d.GetAllocator());' % (field.name, field.name), 2)
+                self.emit(    '')
 
-        self.emit(    'dec_indent(); s.append("\\n" + indtd);', 2)
-        self.emit(    's.append("}");', 2)
-        self.emit(    'if ((bool&)x) { } // Suppress unused warning', 2)
+        self.emit(    'current_node->AddMember("fields", fields, d.GetAllocator());', 2)
+
+        if name in products:
+            self.emit('rapidjson::Value loc = get_location(x.loc.first, x.loc.last);', 2)
+        else:
+            self.emit('rapidjson::Value loc = get_location(x.base.base.loc.first, x.base.base.loc.last);', 2)
+
+        self.emit(    'current_node->AddMember("loc", loc, d.GetAllocator());', 2)
+
         self.emit("}", 1)
+
+        # ----
+        # self.emit(    's.append("{");', 2)
+        # self.emit(    'inc_indent(); s.append("\\n" + indtd);', 2)
+        # self.emit(    's.append("\\"node\\": \\"%s\\"");' % name, 2)
+        # self.emit(    's.append(",\\n" + indtd);', 2)
+        # self.emit(    's.append("\\"fields\\": {");', 2)
+        # if len(fields) > 0:
+        #     self.emit('inc_indent(); s.append("\\n" + indtd);', 2)
+        #     for n, field in enumerate(fields):
+        #         self.visitField(field, cons)
+        #         if n < len(fields) - 1:
+        #             self.emit('s.append(",\\n" + indtd);', 2)
+        #     self.emit('dec_indent(); s.append("\\n" + indtd);', 2)
+        # self.emit(    's.append("}");', 2)
+        # self.emit(    's.append(",\\n" + indtd);', 2)
+        # if name in products:
+        #     self.emit(    'append_location(s, x.loc.first, x.loc.last);', 2)
+        # else:
+        #     self.emit(    'append_location(s, x.base.base.loc.first, x.base.base.loc.last);', 2)
+
+        # self.emit(    'dec_indent(); s.append("\\n" + indtd);', 2)
+        # self.emit(    's.append("}");', 2)
+        # self.emit(    'if ((bool&)x) { } // Suppress unused warning', 2)
+        # self.emit("}", 1)
+
 
     def make_simple_sum_visitor(self, name, types):
         self.emit("void visit_%s(const %s &x) {" % (name, name), 1)
         self.emit(    'switch (x) {', 2)
         for tp in types:
             self.emit(    'case (%s::%s) : {' % (name, tp.name), 3)
-            self.emit(      's.append("\\"%s\\"");' % (tp.name), 4)
+            self.emit(      'current_node->SetString("%s");' % name, 3)
+            # self.emit(      's.append("\\"%s\\"");' % (tp.name), 4)
             self.emit(     ' break; }',3)
         self.emit(    '}', 2)
         self.emit("}", 1)
 
     def visitField(self, field, cons):
-        self.emit('s.append("\\"%s\\": ");' % field.name, 2)
+        self.emit('rapidjson::Value %s;' % field.name, 2)
+
+        # self.emit('s.append("\\"%s\\": ");' % field.name, 2)
+        
         if (field.type not in asdl.builtin_types and
             field.type not in self.data.simple_types):
             self.used = True
@@ -1612,135 +1687,209 @@ class JsonVisitorVisitor(ASDLVisitor):
             else:
                 template = "self().visit_%s(*x.m_%s);" % (field.type, field.name)
             if field.seq:
-                self.emit('s.append("[");', level)
+                self.emit('%s.SetArray();' % field.name, level)
                 self.emit('if (x.n_%s > 0) {' % field.name, level)
-                self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
                 self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
+                self.emit(        "rapidjson::Value node;", level+2)
+                # self.emit(        "node.SetObject();", level+2)
+                self.emit(        "", level+2)
+                self.emit(        "current_node = &node;", level+2)
                 if field.type in sums:
                     self.emit(    "self().visit_%s(*x.m_%s[i]);" % (field.type, field.name), level+2)
                 else:
                     self.emit(    "self().visit_%s(x.m_%s[i]);" % (field.type, field.name), level+2)
-                self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
-                self.emit(            's.append(",\\n" + indtd);', level+3)
-                self.emit(        '};', level+2)
+                self.emit(        "%s.PushBack(node, d.GetAllocator());" % field.name, level+2)
+                self.emit(        "current_node = prevnode;", level+2)
                 self.emit(    "}", level+1)
-                self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
                 self.emit('}', level)
-                self.emit('s.append("]");', level)
+
+                # self.emit('s.append("[");', level)
+                # self.emit('if (x.n_%s > 0) {' % field.name, level)
+                # self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
+                # self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
+                # if field.type in sums:
+                #     self.emit(    "self().visit_%s(*x.m_%s[i]);" % (field.type, field.name), level+2)
+                # else:
+                #     self.emit(    "self().visit_%s(x.m_%s[i]);" % (field.type, field.name), level+2)
+                # self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
+                # self.emit(            's.append(",\\n" + indtd);', level+3)
+                # self.emit(        '};', level+2)
+                # self.emit(    "}", level+1)
+                # self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
+                # self.emit('}', level)
+                # self.emit('s.append("]");', level)
             elif field.opt:
                 self.emit("if (x.m_%s) {" % field.name, level)
+                # self.emit(    "%s.SetObject();" % field.name, level+1)
+                self.emit(    "current_node = &%s;" % field.name, level+1)
                 self.emit(    template, level+1)
                 self.emit("} else {", level)
-                self.emit(    's.append("[]");', level+1)
+                self.emit(    '%s.SetArray();' % field.name, level+1) # leave an empty array
                 self.emit("}", 2)
+                self.emit("current_node = prevnode;", level)
             else:
+                self.emit("current_node = &%s;" % field.name, level)
                 self.emit(template, level)
+                self.emit("current_node = prevnode;", level)
         else:
             if field.type == "identifier":
                 if field.seq:
                     assert not field.opt
                     level = 2
-                    self.emit('s.append("[");', level)
+                    self.emit('%s.SetArray();' % field.name, level)
                     self.emit('if (x.n_%s > 0) {' % field.name, level)
-                    self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
                     self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
-                    self.emit(        's.append("\\"" + std::string(x.m_%s[i]) + "\\"");' % (field.name), level+2)
-                    self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
-                    self.emit(            's.append(",\\n" + indtd);', level+3)
-                    self.emit(        '};', level+2)
+                    self.emit(        "%s.PushBack(rapidjson::StringRef(x.m_%s[i]), d.GetAllocator());" % (field.name, field.name), level+2)
                     self.emit(    "}", level+1)
-                    self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
                     self.emit('}', level)
-                    self.emit('s.append("]");', level)
+
+                    # self.emit('identifier----')
+                    # self.emit('s.append("[");', level)
+                    # self.emit('if (x.n_%s > 0) {' % field.name, level)
+                    # self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
+                    # self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
+                    # self.emit(        's.append("\\"" + std::string(x.m_%s[i]) + "\\"");' % (field.name), level+2)
+                    # self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
+                    # self.emit(            's.append(",\\n" + indtd);', level+3)
+                    # self.emit(        '};', level+2)
+                    # self.emit(    "}", level+1)
+                    # self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
+                    # self.emit('}', level)
+                    # self.emit('s.append("]");', level)
                 else:
                     if field.opt:
                         self.emit("if (x.m_%s) {" % field.name, 2)
-                        self.emit(    's.append("\\"" + std::string(x.m_%s) + "\\"");' % field.name, 3)
+                        self.emit(    '%s.SetString(rapidjson::StringRef(x.m_%s));' % (field.name, field.name), 3)
                         self.emit("} else {", 2)
-                        self.emit(    's.append("[]");', 3)
+                        self.emit(    '%s.SetArray();' % field.name, 3) # leave an empty array
                         self.emit("}", 2)
                     else:
-                        self.emit('s.append("\\"" + std::string(x.m_%s) + "\\"");' % field.name, 2)
+                        self.emit('%s.SetString(rapidjson::StringRef(x.m_%s));' % (field.name, field.name), 2)
             elif field.type == "node":
                 assert not field.opt
                 assert field.seq
                 level = 2
                 mod_name = self.mod.name.lower()
-                self.emit('s.append("[");', level)
+                self.emit('%s.SetArray();' % field.name, level)
                 self.emit('if (x.n_%s > 0) {' % field.name, level)
-                self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
                 self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
+                self.emit(        "rapidjson::Value node;", level+2)
+                # self.emit(        "node.SetObject();", level+2)
+                self.emit(        "", level+2)
+
+                self.emit(        "current_node = &node;", level+2)
                 self.emit(        "self().visit_%s(*x.m_%s[i]);" % (mod_name, field.name), level+2)
-                self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
-                self.emit(            's.append(",\\n" + indtd);', level+3)
-                self.emit(        '};', level+2)
+                self.emit(        "%s.PushBack(node, d.GetAllocator());" % field.name, level+2)
+
                 self.emit(    "}", level+1)
-                self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
                 self.emit('}', level)
-                self.emit('s.append("]");', level)
+                self.emit("current_node = prevnode;", level)
+
+                # self.emit('s.append("[");', level)
+                # self.emit('if (x.n_%s > 0) {' % field.name, level)
+                # self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
+                # self.emit(    "for (size_t i=0; i<x.n_%s; i++) {" % field.name, level+1)
+                # self.emit(        "self().visit_%s(*x.m_%s[i]);" % (mod_name, field.name), level+2)
+                # self.emit(        'if (i < x.n_%s-1) {' % (field.name), level+2)
+                # self.emit(            's.append(",\\n" + indtd);', level+3)
+                # self.emit(        '};', level+2)
+                # self.emit(    "}", level+1)
+                # self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
+                # self.emit('}', level)
+                # self.emit('s.append("]");', level)
             elif field.type == "symbol_table":
                 assert not field.opt
                 assert not field.seq
                 if field.name == "parent_symtab":
                     level = 2
-                    self.emit('s.append(x.m_%s->get_counter());' % field.name, level)
+                    self.emit('std::string s = %s;' % field.name, level)
+                    self.emit('s += x.m_%s->get_counter();' % field.name, level)
+                    self.emit('%s.SetString(s, d.GetAllocator()));' % field.name, level)
+
+                    # self.emit('s.append(x.m_%s->get_counter());' % field.name, level)
                 else:
                     level = 2
-                    self.emit('s.append("{");', level)
-                    self.emit('inc_indent(); s.append("\\n" + indtd);', level)
-                    self.emit('s.append("\\"node\\": \\"SymbolTable" + x.m_%s->get_counter() +"\\"");' % field.name, level)
-                    self.emit('s.append(",\\n" + indtd);', level)
-                    self.emit('s.append("\\"fields\\": {");', level)
+                    self.emit('%s.SetObject()' % field.name, level)
+                    self.emit('std::string s = "SymbolTable" + x.m_%s->get_counter();' % field.name, level)
+                    self.emit('%s.AddMember("node", s, d.GetAllocator());' % field.name, level)
+
+                    self.emit('rapidjson::Value %s_fields;' % field.name, level)
+                    self.emit('%s_fields.SetObject();' % field.name, level)
                     self.emit('if (x.m_%s->get_scope().size() > 0) {' % field.name, level)
-                    self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
                     self.emit(    'size_t i = 0;', level+1)
                     self.emit(    'for (auto &a : x.m_%s->get_scope()) {' % field.name, level+1)
-                    self.emit(        's.append("\\"" + a.first + "\\": ");', level+2)
+                    self.emit(        "rapidjson::Value node;", level+2)
+                    # self.emit(        "node.SetObject();", level+2)
+                    self.emit(        "", level+2)
+
+                    self.emit(        "current_node = &node;", level+2)
                     self.emit(        'this->visit_symbol(*a.second);', level+2)
-                    self.emit(        'if (i < x.m_%s->get_scope().size()-1) { ' % field.name, level+2)
-                    self.emit(        '    s.append(",\\n" + indtd);', level+3)
-                    self.emit(        '}', level+2)
+                    self.emit(        "%s_fields.AddMember(a.first, node, d.GetAllocator());" % field.name, level+2)
+
                     self.emit(        'i++;', level+2)
                     self.emit(    '}', level+1)
-                    self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
                     self.emit('}', level)
-                    self.emit('s.append("}");', level)
-                    self.emit('dec_indent(); s.append("\\n" + indtd);', level)
-                    self.emit('s.append("}");', level)
+                    self.emit("current_node = prevnode;", level)
+
+                    # self.emit('s.append("{");', level)
+                    # self.emit('inc_indent(); s.append("\\n" + indtd);', level)
+                    # self.emit('s.append("\\"node\\": \\"SymbolTable" + x.m_%s->get_counter() +"\\"");' % field.name, level)
+                    # self.emit('s.append(",\\n" + indtd);', level)
+                    # self.emit('s.append("\\"fields\\": {");', level)
+                    # self.emit('if (x.m_%s->get_scope().size() > 0) {' % field.name, level)
+                    # self.emit(    'inc_indent(); s.append("\\n" + indtd);', level+1)
+                    # self.emit(    'size_t i = 0;', level+1)
+                    # self.emit(    'for (auto &a : x.m_%s->get_scope()) {' % field.name, level+1)
+                    # self.emit(        's.append("\\"" + a.first + "\\": ");', level+2)
+                    # self.emit(        'this->visit_symbol(*a.second);', level+2)
+                    # self.emit(        'if (i < x.m_%s->get_scope().size()-1) { ' % field.name, level+2)
+                    # self.emit(        '    s.append(",\\n" + indtd);', level+3)
+                    # self.emit(        '}', level+2)
+                    # self.emit(        'i++;', level+2)
+                    # self.emit(    '}', level+1)
+                    # self.emit(    'dec_indent(); s.append("\\n" + indtd);', level+1)
+                    # self.emit('}', level)
+                    # self.emit('s.append("}");', level)
+                    # self.emit('dec_indent(); s.append("\\n" + indtd);', level)
+                    # self.emit('s.append("}");', level)
             elif field.type == "string" and not field.seq:
                 if field.opt:
                     self.emit("if (x.m_%s) {" % field.name, 2)
-                    self.emit(    's.append("\\"" + std::string(x.m_%s) + "\\"");' % field.name, 3)
+                    self.emit(    '%s.SetString(rapidjson::StringRef(x.m_%s));' % (field.name, field.name), 3)
                     self.emit("} else {", 2)
-                    self.emit(    's.append("[]");', 3)
+                    self.emit(    '%s.SetArray();' % field.name, 3) # leave an empty array
                     self.emit("}", 2)
                 else:
-                    self.emit('s.append("\\"" + std::string(x.m_%s) + "\\"");' % field.name, 2)
+                    self.emit('%s.SetString(rapidjson::StringRef(x.m_%s));' % (field.name, field.name), 2)
             elif field.type == "int" and not field.seq:
                 if field.opt:
                     self.emit("if (x.m_%s) {" % field.name, 2)
-                    self.emit(    's.append(std::to_string(x.m_%s));' % field.name, 3)
+                    self.emit(    '%s.SetInt(x.m_%s);' % (field.name, field.name), 3)
+                    # self.emit(    's.append(std::to_string(x.m_%s));' % field.name, 3)
                     self.emit("} else {", 2)
-                    self.emit(    's.append("[]");', 3)
+                    self.emit(    '%s.SetArray();' % field.name, 3) # leave an empty array
                     self.emit("}", 2)
                 else:
-                    self.emit('s.append(std::to_string(x.m_%s));' % field.name, 2)
+                    self.emit('%s.SetInt(x.m_%s);' % (field.name, field.name), 2)
             elif field.type == "float" and not field.seq and not field.opt:
-                self.emit('s.append(std::to_string(x.m_%s));' % field.name, 2)
+                self.emit('%s.SetFloat(x.m_%s);' % (field.name, field.name), 2)
             elif field.type == "bool" and not field.seq and not field.opt:
                 self.emit("if (x.m_%s) {" % field.name, 2)
-                self.emit(    's.append("true");', 3)
+                self.emit(    '%s.SetBool(true);' % field.name, 3) # leave an empty array
                 self.emit("} else {", 2)
-                self.emit(    's.append("false");', 3)
+                self.emit(    '%s.SetBool(false);' % field.name, 3) # leave an empty array
                 self.emit("}", 2)
             elif field.type in self.data.simple_types:
                 if field.opt:
-                    self.emit('s.append("\\"Unimplementedopt\\"");', 2)
+                    self.emit('%s.SetString("Unimplementedopt");' % field.name, 2)
+                    # self.emit('s.append("\\"Unimplementedopt\\"");', 2)
                 else:
-                    self.emit('visit_%sType(x.m_%s);' \
-                            % (field.type, field.name), 2)
+                    self.emit("current_node = &%s;" % field.name, 2)
+                    self.emit('visit_%sType(x.m_%s);' % (field.type, field.name), 2)
+                    self.emit("current_node = prevnode;", 2)
             else:
-                self.emit('s.append("\\"Unimplemented%s\\"");' % field.type, 2)
+                self.emit('%s.SetString("Unimplemented%s");' % (field.name, field.type), 2)
+                # self.emit('s.append("\\"Unimplemented%s\\"");' % field.type, 2)
 
 
 class SerializationVisitorVisitor(ASDLVisitor):
@@ -2424,7 +2573,11 @@ HEAD = r"""#ifndef LFORTRAN_%(MOD2)s_H
 #include <libasr/containers.h>
 #include <libasr/exception.h>
 #include <libasr/asr_scopes.h>
-
+#include <rapidjson/rapidjson.h>
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+// #include <rapidjson/prettywriter.h> // prettified output
+#include <rapidjson/stringbuffer.h>
 
 namespace LFortran::%(MOD)s {
 
